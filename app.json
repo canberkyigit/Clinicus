@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "clinic-manager",
-    "slug": "clinic-manager",
+    "name": "Clinicus",
+    "slug": "clinicus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#16281e"
     },
     "ios": {
       "supportsTablet": true
@@ -18,12 +18,31 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#16281e"
       },
       "edgeToEdgeEnabled": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      "expo-asset",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Personel profil fotoğrafı seçmek için galerinize erişim gerekiyor.",
+          "cameraPermission": "Personel profil fotoğrafı çekmek için kameranıza erişim gerekiyor."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Hasta verilerini korumak için uygulama kilidinde Face ID kullanılır."
+        }
+      ]
+    ],
+    "scheme": "clinicus"
   }
 }

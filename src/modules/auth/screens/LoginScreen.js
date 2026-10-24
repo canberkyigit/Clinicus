@@ -1,307 +1,225 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Alert, Modal } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import logo from '../../../../assets/logo1.png';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../../../shared/services/firebase';
-import { getFirestore, setDoc, doc } from 'firebase/firestore';
+import AppText from '../../../shared/components/AppText';
+import Button from '../../../shared/components/Button';
+import FormField from '../../../shared/components/FormField';
+import SegmentedControl from '../../../shared/components/SegmentedControl';
+import { authErrorMessage, useAuth } from '../../../shared/context/AuthContext';
+import { useStyles, useTheme } from '../../../shared/theme/ThemeProvider';
+import { EMAIL_REGEX } from '../../../shared/utils/format';
 
-const db = getFirestore();
+const MODES = [
+  { value: 'login', label: 'Giriş Yap' },
+  { value: 'signup', label: 'Kayıt Ol' },
+];
 
-export default function LoginScreen({ onLogin }) {
+export default function LoginScreen() {
+  const { signIn, signUp, resetPassword, isConfigured, canUseDemo, startDemo } = useAuth();
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
+  const insets = useSafeAreaInsets();
+  const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [signupVisible, setSignupVisible] = useState(false);
-  // Signup modal state
-  const [signupEmail, setSignupEmail] = useState('');
-  const [signupPassword, setSignupPassword] = useState('');
-  const [signupError, setSignupError] = useState('');
-  const [signupLoading, setSignupLoading] = useState(false);
-  const [signupSuccess, setSignupSuccess] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const passwordRef = useRef(null);
+  const confirmRef = useRef(null);
+  const isSignup = mode === 'signup';
 
-  const resetSignupState = () => {
-    setSignupEmail('');
-    setSignupPassword('');
-    setSignupError('');
-    setSignupLoading(false);
-    setSignupSuccess(false);
+  const switchMode = next => {
+    setMode(next);
+    setErrors({});
+    setPassword('');
+    setPasswordConfirm('');
   };
 
-  const handleLogin = async () => {
-    setError('');
-    if (!password) {
-      setError('Lütfen şifre giriniz.');
+  const validate = () => {
+    const next = {};
+    if (!EMAIL_REGEX.test(email.trim())) next.email = 'Geçerli bir e-posta girin.';
+    if (!password) next.password = 'Şifre girin.';
+    else if (isSignup && password.length < 6) next.password = 'Şifre en az 6 karakter olmalı.';
+    if (isSignup && password !== passwordConfirm) next.passwordConfirm = 'Şifreler eşleşmiyor.';
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const submit = async () => {
+    if (loading || !validate()) return;
+    setLoading(true);
+    try {
+      // On success AuthContext swaps to the app stack and unmounts this screen.
+      await (isSignup ? signUp(email, password) : signIn(email, password));
+    } catch (err) {
+      setErrors({ form: authErrorMessage(err) });
+      setLoading(false);
+    }
+  };
+
+  const forgotPassword = async () => {
+    if (!EMAIL_REGEX.test(email.trim())) {
+      setErrors({ email: 'Şifre sıfırlama için e-posta adresinizi girin.' });
       return;
     }
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      onLogin && onLogin();
+      await resetPassword(email);
+      Alert.alert('E-posta gönderildi', 'Şifre sıfırlama bağlantısı e-posta adresinize gönderildi.');
     } catch (err) {
-      setError('E-posta veya şifre hatalı!');
-    }
-  };
-
-  const handleSignup = async () => {
-    setSignupError('');
-    setSignupLoading(true);
-    // E-posta regex kontrolü
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(signupEmail)) {
-      setSignupError('Lütfen geçerli bir e-posta giriniz.');
-      setSignupLoading(false);
-      return;
-    }
-    if (!signupPassword) {
-      setSignupError('Lütfen şifre giriniz.');
-      setSignupLoading(false);
-      return;
-    }
-    try {
-      await createUserWithEmailAndPassword(auth, signupEmail, signupPassword);
-      setSignupSuccess(true);
-      setSignupLoading(false);
-      setTimeout(() => {
-        setSignupVisible(false);
-        resetSignupState();
-        setEmail('');
-        setPassword('');
-        setError('');
-      }, 1000);
-    } catch (err) {
-      if (err?.code === 'auth/email-already-in-use') {
-        setSignupError('Bu e-posta ile zaten bir hesap var.');
-      } else if (err?.code === 'auth/weak-password') {
-        setSignupError('Şifre en az 6 karakter olmalı.');
-      } else {
-        setSignupError('Kayıt başarısız: ' + (err?.message || ''));
-      }
-      setSignupLoading(false);
+      setErrors({ form: authErrorMessage(err) });
     }
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.logoBox}>
-        <Image 
-          source={logo} 
-          style={styles.logoImg}
-          onLoad={() => console.log('Login logo loaded successfully')}
-          onError={(error) => console.log('Login logo loading error:', error)}
-        />
-        <Text style={styles.appTitle}>Clinic Manager</Text>
-      </View>
-      <View style={styles.formBox}>
-        <Text style={styles.label}>E-posta</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="E-posta"
-          placeholderTextColor="#888"
+    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.brand}>
+          <Image source={logo} style={styles.logo} accessibilityIgnoresInvertColors />
+          <AppText variant="display">Clinicus</AppText>
+          <AppText variant="body" color="secondary" align="center">
+            Randevu, hasta, personel ve finans yönetimi tek yerde.
+          </AppText>
+        </View>
+
+        {!isConfigured ? (
+          <View style={styles.warning}>
+            <Feather name="alert-triangle" size={18} color={colors.warning} />
+            <AppText variant="small" color="warning" style={styles.flex}>
+              Firebase yapılandırması bulunamadı. `.env` dosyasını oluşturup uygulamayı yeniden başlatın.
+            </AppText>
+          </View>
+        ) : null}
+
+        <SegmentedControl options={MODES} value={mode} onChange={switchMode} style={styles.segment} />
+
+        <FormField
+          label="E-posta"
+          icon="mail"
+          placeholder="ornek@klinik.com"
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
           autoCapitalize="none"
+          autoComplete="email"
+          textContentType="emailAddress"
+          returnKeyType="next"
+          onSubmitEditing={() => passwordRef.current?.focus()}
+          error={errors.email}
         />
-        <Text style={styles.label}>Şifre</Text>
-        <View style={styles.passwordRow}>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            placeholder="Şifre"
-            placeholderTextColor="#888"
-            value={password}
-            onChangeText={setPassword}
+        <FormField
+          ref={passwordRef}
+          label="Şifre"
+          icon="lock"
+          placeholder="••••••••"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+          autoCapitalize="none"
+          autoComplete={isSignup ? 'new-password' : 'current-password'}
+          textContentType={isSignup ? 'newPassword' : 'password'}
+          returnKeyType={isSignup ? 'next' : 'go'}
+          onSubmitEditing={() => (isSignup ? confirmRef.current?.focus() : submit())}
+          error={errors.password}
+          right={
+            <Pressable
+              onPress={() => setShowPassword(v => !v)}
+              style={styles.eye}
+              accessibilityRole="button"
+              accessibilityLabel={showPassword ? 'Şifreyi gizle' : 'Şifreyi göster'}
+            >
+              <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color={colors.textTertiary} />
+            </Pressable>
+          }
+        />
+        {isSignup ? (
+          <FormField
+            ref={confirmRef}
+            label="Şifre (tekrar)"
+            icon="lock"
+            placeholder="••••••••"
+            value={passwordConfirm}
+            onChangeText={setPasswordConfirm}
             secureTextEntry={!showPassword}
             autoCapitalize="none"
+            returnKeyType="go"
+            onSubmitEditing={submit}
+            error={errors.passwordConfirm}
           />
-          <TouchableOpacity onPress={() => setShowPassword(v => !v)} style={styles.eyeBtn}>
-            <Feather name={showPassword ? 'eye' : 'eye-off'} size={22} color="#b0b0b0" />
-          </TouchableOpacity>
-        </View>
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
-          <Text style={styles.loginBtnText}>Giriş Yap</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.signupBtn} onPress={() => {
-          resetSignupState();
-          setSignupVisible(true);
-        }}>
-          <Text style={styles.signupBtnText}>Üye Ol</Text>
-        </TouchableOpacity>
-      </View>
-      {/* Signup Modal */}
-      <Modal visible={signupVisible} animationType="slide" transparent onRequestClose={() => {
-        resetSignupState();
-        setSignupVisible(false);
-      }}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Üye Ol</Text>
-            <Text style={styles.label}>E-posta</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="E-posta"
-              placeholderTextColor="#888"
-              value={signupEmail}
-              onChangeText={setSignupEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <Text style={styles.label}>Şifre</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Şifre"
-              placeholderTextColor="#888"
-              value={signupPassword}
-              onChangeText={setSignupPassword}
-              secureTextEntry
-              autoCapitalize="none"
-            />
-            {signupError ? <Text style={styles.errorText}>{signupError}</Text> : null}
-            <TouchableOpacity
-              style={[styles.loginBtn, signupSuccess && { borderColor: '#00d46a', backgroundColor: '#00d46a' }]}
-              onPress={handleSignup}
-              disabled={signupLoading || signupSuccess}
-            >
-              <Text style={[styles.loginBtnText, signupSuccess && { color: '#fff', fontWeight: '700' }]}> 
-                {signupSuccess ? 'Kayıt Başarılı!' : (signupLoading ? 'Kaydediliyor...' : 'Kayıt Ol')}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.signupBtn} onPress={() => {
-              resetSignupState();
-              setSignupVisible(false);
-            }}>
-              <Text style={styles.signupBtnText}>Vazgeç</Text>
-            </TouchableOpacity>
+        ) : (
+          <Pressable onPress={forgotPassword} style={styles.forgot} accessibilityRole="button" hitSlop={8}>
+            <AppText variant="smallMedium" color="brand">
+              Şifremi unuttum
+            </AppText>
+          </Pressable>
+        )}
+
+        {errors.form ? (
+          <View style={styles.formError}>
+            <Feather name="alert-circle" size={16} color={colors.danger} />
+            <AppText variant="small" color="danger" style={styles.flex}>
+              {errors.form}
+            </AppText>
           </View>
-        </View>
-      </Modal>
-    </View>
+        ) : null}
+
+        <Button title={isSignup ? 'Hesap Oluştur' : 'Giriş Yap'} onPress={submit} loading={loading} disabled={!isConfigured} />
+
+        {canUseDemo ? (
+          <>
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <AppText variant="caption" color="tertiary">
+                VEYA
+              </AppText>
+              <View style={styles.dividerLine} />
+            </View>
+            <Button title="Demo modunda devam et" icon="play-circle" variant="outline" onPress={startDemo} />
+          </>
+        ) : null}
+
+        <AppText variant="caption" color="tertiary" align="center" style={styles.footer}>
+          Devam ederek KVKK kapsamında hasta verilerinin korunmasına ilişkin sorumlulukları kabul etmiş olursunuz.
+        </AppText>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#16281e',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  logoBox: {
-    alignItems: 'center',
-    marginBottom: 38,
-  },
-  logoImg: {
-    width: 120,
-    height: 120,
-    borderRadius: 30,
-    marginBottom: 12,
-  },
-  appTitle: {
-    color: '#6fff8a',
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  formBox: {
-    width: '100%',
-    backgroundColor: '#232a23',
-    borderRadius: 18,
-    padding: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 8,
-  },
-  label: {
-    color: '#b0b0b0',
-    fontSize: 15,
-    fontWeight: '500',
-    marginBottom: 7,
-    marginTop: 2,
-  },
-  input: {
-    backgroundColor: '#181f1a',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    color: '#fff',
-    fontSize: 16,
-    borderWidth: 1.2,
-    borderColor: '#232a23',
-    marginBottom: 18,
-    width: '100%',
-    alignSelf: 'stretch',
-  },
-  passwordRow: {
+const makeStyles = t => ({
+  root: { flex: 1, backgroundColor: t.colors.background },
+  flex: { flex: 1 },
+  scroll: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24 },
+  brand: { alignItems: 'center', gap: 6, marginBottom: 28 },
+  logo: { width: 76, height: 76, borderRadius: 20, marginBottom: 10 },
+  warning: {
     flexDirection: 'row',
-    alignItems: 'center',
+    gap: 10,
+    backgroundColor: t.colors.warningMuted,
+    borderRadius: t.radius.md,
+    padding: 12,
     marginBottom: 16,
   },
-  eyeBtn: {
-    marginLeft: 8,
-    padding: 4,
-  },
-  loginBtn: {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: '#6fff8a',
-    borderRadius: 14,
-    paddingVertical: 14,
+  segment: { marginBottom: 20 },
+  eye: { paddingHorizontal: 14, paddingVertical: 10 },
+  forgot: { alignSelf: 'flex-end', marginTop: -4, marginBottom: 16 },
+  formError: {
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
-    marginTop: 8,
-    width: '100%',
-    alignSelf: 'stretch',
+    backgroundColor: t.colors.dangerMuted,
+    borderRadius: t.radius.md,
+    padding: 12,
+    marginBottom: 14,
   },
-  loginBtnText: {
-    color: '#6fff8a',
-    fontSize: 17,
-    fontWeight: '400',
-    textTransform: 'uppercase',
-  },
-  errorText: {
-    color: '#ff4d4f',
-    fontSize: 14,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  signupBtn: {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: '#6fff8a',
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 14,
-    width: '100%',
-    alignSelf: 'stretch',
-  },
-  signupBtnText: {
-    color: '#6fff8a',
-    fontSize: 17,
-    fontWeight: '400',
-    textTransform: 'uppercase',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(10,16,12,0.88)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalBox: {
-    backgroundColor: '#232a23',
-    borderRadius: 18,
-    padding: 28,
-    width: 340,
-    maxWidth: '95%',
-    alignItems: 'stretch',
-  },
-  modalTitle: {
-    color: '#6fff8a',
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 18,
-  },
-}); 
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 18 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: t.colors.border },
+  footer: { marginTop: 24 },
+});

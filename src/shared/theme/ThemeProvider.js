@@ -1,25 +1,24 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
+import { StyleSheet, useColorScheme } from 'react-native';
+import { buildTheme } from './theme';
 
-const ThemeContext = createContext();
+const ThemeContext = createContext(buildTheme(true));
 
-export const useTheme = () => useContext(ThemeContext);
+// mode: 'system' | 'light' | 'dark'
+export function ThemeProvider({ mode = 'system', children }) {
+  const scheme = useColorScheme();
+  const isDark = mode === 'system' ? scheme !== 'light' : mode === 'dark';
+  const theme = useMemo(() => buildTheme(isDark), [isDark]);
+  return <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>;
+}
 
-const theme = {
-  colors: {
-    background: ['#1a2b1e', '#16281e', '#0a0f0c'],
-    card: '#181f1a',
-    primary: '#6fff8a',
-    text: '#fff',
-    subtext: '#b0b0b0',
-    accent: '#1a2b1e',
-    border: '#222',
-  },
-};
+export function useTheme() {
+  return useContext(ThemeContext);
+}
 
-export default function ThemeProvider({ children }) {
-  return (
-    <ThemeContext.Provider value={theme}>
-      {children}
-    </ThemeContext.Provider>
-  );
-} 
+// Usage: const makeStyles = t => ({ ... }); const styles = useStyles(makeStyles);
+// Styles are rebuilt only when the theme changes.
+export function useStyles(factory) {
+  const theme = useTheme();
+  return useMemo(() => StyleSheet.create(factory(theme)), [theme, factory]);
+}

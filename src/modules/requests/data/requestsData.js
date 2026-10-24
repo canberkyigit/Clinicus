@@ -1,55 +1,16 @@
-export const leaveRequestsData = [
-  {
-    id: 1,
-    employeeName: 'Dr. Ahmet Yılmaz',
-    requestType: 'Yıllık İzin',
-    startDate: '2024-07-01',
-    endDate: '2024-07-10',
-    reason: 'Aile ziyareti',
-    status: 'approved',
-    submittedDate: '10.07.2024',
-  },
-  {
-    id: 2,
-    employeeName: 'Dr. Elif Demir',
-    requestType: 'Mazeret İzni',
-    startDate: '2024-07-15',
-    endDate: '2024-07-16',
-    reason: 'Sağlık sorunu',
-    status: 'pending',
-    submittedDate: '11.07.2024',
-  },
+export const LEAVE_TYPES = [
+  'Yıllık İzin',
+  'Mazeret İzni',
+  'Raporlu',
+  'Ücretsiz İzin',
+  'Doğum İzni',
+  'Babalık İzni',
+  'Diğer',
 ];
 
-export const specialRequestsData = [
-  {
-    id: 1,
-    employeeName: 'Murat Aksoy',
-    requestCategory: 'Ekipman Talebi',
-    requestTitle: 'Yeni Bilgisayar Talebi',
-    requestDetail: 'Mevcut bilgisayarım yavaş çalışıyor, yeni bir bilgisayar talebinde bulunuyorum.',
-    status: 'pending',
-    priority: 'high',
-    submittedDate: '12.01.2025',
-  },
-  {
-    id: 2,
-    employeeName: 'Zeynep Kılıç',
-    requestCategory: 'Eğitim Talebi',
-    requestTitle: 'Kardiyoloji Semineri',
-    requestDetail: 'Yeni kardiyoloji teknikleri hakkında seminer talebinde bulunuyorum.',
-    status: 'approved',
-    priority: 'medium',
-    submittedDate: '10.01.2025',
-  },
-  {
-    id: 3,
-    employeeName: 'Dr. Mehmet Kaya',
-    requestCategory: 'Çalışma Saati Değişikliği',
-    requestTitle: 'Vardiya Değişikliği',
-    requestDetail: 'Kişisel nedenlerden dolayı vardiya değişikliği talebinde bulunuyorum.',
-    status: 'rejected',
-    priority: 'low',
-    submittedDate: '14.01.2025',
-  },
-]; 
+export const SPECIAL_CATEGORIES = [
+  'Ekipman Talebi',
+  'Eğitim Talebi',
+  'Çalışma Saati Değişikliği',
+  'Diğer',
+];
