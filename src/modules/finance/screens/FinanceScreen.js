@@ -1,113 +1,249 @@
-import React from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Text } from 'react-native';
-import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import FinanceSummaryCards from '../components/FinanceSummaryCards';
-import FinanceLineChart from '../components/FinanceLineChart';
-import BranchIncomeCards from '../components/BranchIncomeCards';
-import DoctorIncomeList from '../components/DoctorIncomeList';
-import RecentPaymentsTable from '../components/RecentPaymentsTable';
-import ExpensePieChart from '../components/ExpensePieChart';
-import CollectionDueTable from '../components/CollectionDueTable';
+import React, { useMemo, useState } from 'react';
+import { Share, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import AppText from '../../../shared/components/AppText';
+import Button from '../../../shared/components/Button';
+import Card from '../../../shared/components/Card';
+import IconButton from '../../../shared/components/IconButton';
+import KpiCard from '../../../shared/components/KpiCard';
+import ProgressBar from '../../../shared/components/ProgressBar';
+import Screen from '../../../shared/components/Screen';
+import SegmentedControl from '../../../shared/components/SegmentedControl';
+import AreaChart from '../../../shared/components/charts/AreaChart';
+import BarChart from '../../../shared/components/charts/BarChart';
+import DonutChart from '../../../shared/components/charts/DonutChart';
+import { useAppData, useLookup, useMoney } from '../../../shared/context/AppDataContext';
+import { clinicCity } from '../../../shared/data/clinics';
+import { useStyles, useTheme } from '../../../shared/theme/ThemeProvider';
+import { formatDate } from '../../../shared/utils/date';
+import { formatCurrency, formatPercent, percentChange } from '../../../shared/utils/format';
+import TransactionRow from '../components/TransactionRow';
+import {
+  dailySeries,
+  groupSum,
+  inRange,
+  monthlySeries,
+  PERIODS,
+  periodRange,
+  summarize,
+  transactionsToCsv,
+} from '../data/financeSelectors';
 
-const summary = {
-  total: 120000,
-  month: 18500,
-  dailyAvg: 620,
-  collectionRate: 92,
-};
-const branches = [
-  { name: 'İstanbul', income: 45000, trend: 12 },
-  { name: 'Ankara', income: 38000, trend: -5 },
-  { name: 'İzmir', income: 22000, trend: 8 },
-  { name: 'Bursa', income: 15000, trend: 2 },
-];
-const doctors = [
-  { name: 'Dr. Ahmet', income: 18000, bonus: 1200 },
-  { name: 'Dr. Elif', income: 14500, bonus: 900 },
-  { name: 'Dr. Can', income: 11200 },
-  { name: 'Dr. Zeynep', income: 9800 },
-];
-const payments = [
-  { patient: 'Ayşe K.', procedure: 'Botox', amount: 2500, status: 'paid' },
-  { patient: 'Mehmet T.', procedure: 'PRP', amount: 1800, status: 'paid' },
-  { patient: 'Fatma Y.', procedure: 'Dolgu', amount: 3200, status: 'unpaid' },
-  { patient: 'Ali V.', procedure: 'Cilt Bakımı', amount: 900, status: 'paid' },
-  { patient: 'Zeynep S.', procedure: 'Lazer', amount: 2100, status: 'paid' },
-];
-const expenses = [
-  { label: 'Personel Maaşları', amount: 7200 },
-  { label: 'Kira', amount: 2500 },
-  { label: 'Malzeme Alımı', amount: 1200 },
-  { label: 'Elektrik/Su', amount: 600 },
-  { label: 'Reklam', amount: 900 },
-  { label: 'Diğer', amount: 400 },
-];
-const dues = [
-  { patient: 'Fatma Y.', amount: 3200, dueDate: '2024-06-10', status: 'overdue' },
-  { patient: 'Ali V.', amount: 900, dueDate: '2024-06-15', status: 'due' },
-];
-const installments = [
-  { patient: 'Zeynep S.', total: 4200, paid: 2100, remaining: 2100, nextDue: '2024-06-20' },
-  { patient: 'Mehmet T.', total: 3600, paid: 1800, remaining: 1800, nextDue: '2024-06-25' },
-];
+export function buildReportText(summary, range, label) {
+  return [
+    `Clinicus · Finans Raporu (${label})`,
+    `${formatDate(range.start)} – ${formatDate(range.end)}`,
+    '',
+    `Gelir: ${formatCurrency(summary.income)}`,
+    `Tahsil edilen: ${formatCurrency(summary.collected)}`,
+    `Alacak: ${formatCurrency(summary.receivable)}`,
+    `Gider: ${formatCurrency(summary.expense)}`,
+    `Net: ${formatCurrency(summary.net)}`,
+    `Tahsilat oranı: %${summary.collectionRate}`,
+  ].join('\n');
+}
 
-export default function FinanceScreen({ onBack }) {
+export default function FinanceScreen({ navigation }) {
+  const { transactions } = useAppData();
+  const personnel = useLookup('personnel');
+  const { format, hidden, toggleHidden } = useMoney();
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
+  const [period, setPeriod] = useState('month');
+
+  const data = useMemo(() => {
+    const range = periodRange(period);
+    const current = inRange(transactions, range.start, range.end);
+    const previous = inRange(transactions, range.prevStart, range.prevEnd);
+    const income = current.filter(t => t.type === 'income');
+    const monthlyExpense = monthlySeries(transactions, 12, new Date(), 'expense');
+    return {
+      range,
+      current,
+      summary: summarize(current),
+      prev: summarize(previous),
+      byClinic: groupSum(income, t => t.clinicId),
+      byDoctor: groupSum(income.filter(t => t.doctorId), t => t.doctorId).slice(0, 5),
+      byCategory: groupSum(current.filter(t => t.type === 'expense'), t => t.category),
+      daily: dailySeries(transactions, range.start, range.end).map(p => ({ ...p, tooltipLabel: formatDate(p.key, 'd MMMM') })),
+      prevDaily: dailySeries(transactions, range.prevStart, range.prevEnd),
+      monthly: monthlySeries(transactions, 12).map((m, i) => ({ ...m, values: [m.value, monthlyExpense[i].value] })),
+      recent: [...current].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6),
+    };
+  }, [transactions, period]);
+
+  const { summary, prev } = data;
+  const maxClinic = Math.max(1, ...data.byClinic.map(c => c.value));
+  const periodLabel = PERIODS.find(p => p.value === period).label;
+
+  const share = async () => {
+    const text = buildReportText(summary, data.range, periodLabel);
+    const csv = transactionsToCsv([...data.current].sort((a, b) => a.date.localeCompare(b.date)));
+    await Share.share({ title: 'Finans Raporu', message: `${text}\n\n--- İşlemler (CSV) ---\n${csv}` }).catch(() => {});
+  };
+
   return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        {onBack && (
-          <TouchableOpacity onPress={onBack} activeOpacity={0.75} style={styles.backButtonWrap}>
-            <Feather name="arrow-left" size={28} color="#6fff8a" />
-          </TouchableOpacity>
-        )}
-        <Text style={styles.title}>Finans</Text>
-        <View style={{ width: 36 }} />
+    <Screen
+      title="Finans"
+      onBack={navigation.goBack}
+      right={
+        <>
+          <IconButton icon={hidden ? 'eye-off' : 'eye'} onPress={toggleHidden} accessibilityLabel={hidden ? 'Değerleri göster' : 'Değerleri gizle'} />
+          <IconButton icon="share" onPress={share} accessibilityLabel="Raporu paylaş" />
+        </>
+      }
+    >
+      <SegmentedControl options={PERIODS} value={period} onChange={setPeriod} style={styles.segment} />
+
+      <Card>
+        <AppText variant="small" color="secondary">
+          Net kâr · {periodLabel}
+        </AppText>
+        <View style={styles.netRow}>
+          <AppText variant="display" color={summary.net >= 0 ? 'primary' : 'danger'}>
+            {format(summary.net)}
+          </AppText>
+          <Delta value={percentChange(summary.net, prev.net)} />
+        </View>
+        <View style={styles.split}>
+          <View style={styles.splitItem}>
+            <View style={[styles.splitIcon, { backgroundColor: colors.successMuted }]}>
+              <Feather name="arrow-down-left" size={15} color={colors.success} />
+            </View>
+            <View>
+              <AppText variant="caption" color="tertiary">
+                GELİR
+              </AppText>
+              <AppText variant="bodyMedium">{format(summary.income)}</AppText>
+            </View>
+          </View>
+          <View style={styles.splitItem}>
+            <View style={[styles.splitIcon, { backgroundColor: colors.dangerMuted }]}>
+              <Feather name="arrow-up-right" size={15} color={colors.danger} />
+            </View>
+            <View>
+              <AppText variant="caption" color="tertiary">
+                GİDER
+              </AppText>
+              <AppText variant="bodyMedium">{format(summary.expense)}</AppText>
+            </View>
+          </View>
+        </View>
+      </Card>
+
+      <View style={styles.kpis}>
+        <KpiCard icon="percent" tone="info" label="Tahsilat oranı" value={formatPercent(summary.collectionRate)} caption={`${format(summary.collected, { compact: true })} tahsil edildi`} />
+        <KpiCard
+          icon="clock"
+          tone="warning"
+          label="Bekleyen alacak"
+          value={format(summary.receivable, { compact: true })}
+          caption="Görmek için dokunun"
+          onPress={() => navigation.navigate('Transactions', { status: 'pending' })}
+        />
       </View>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <FinanceSummaryCards summary={summary} />
-        <FinanceLineChart />
-        <BranchIncomeCards branches={branches} />
-        <DoctorIncomeList doctors={doctors} />
-        <RecentPaymentsTable payments={payments} />
-        <ExpensePieChart expenses={expenses} />
-        <CollectionDueTable dues={dues} installments={installments} />
-        {/* Diğer bölümler (gelir dağılımı, export) sonraki adımda eklenecek */}
-      </ScrollView>
+
+      <View style={styles.actions}>
+        <Button title="Tahsilat" icon="plus" style={styles.flex} onPress={() => navigation.navigate('TransactionForm', { type: 'income' })} />
+        <Button title="Gider" icon="minus" variant="secondary" style={styles.flex} onPress={() => navigation.navigate('TransactionForm', { type: 'expense' })} />
+      </View>
+
+      {period === 'year' ? (
+        <Card title="Aylık gelir ve gider">
+          <BarChart
+            data={data.monthly}
+            series={[
+              { label: 'Gelir', color: colors.primary },
+              { label: 'Gider', color: colors.danger },
+            ]}
+            formatValue={v => format(v, { compact: true })}
+          />
+        </Card>
+      ) : (
+        <Card title="Günlük gelir" right={<AppText variant="caption" color="tertiary">--- önceki dönem</AppText>}>
+          <AreaChart
+            data={data.daily}
+            compareData={data.prevDaily}
+            formatValue={v => format(v)}
+            labelEvery={Math.ceil(data.daily.length / 6)}
+          />
+        </Card>
+      )}
+
+      <Card title="Klinik bazında gelir">
+        {data.byClinic.map((c, i) => (
+          <View key={c.key} style={[styles.barRow, i === data.byClinic.length - 1 && styles.last]}>
+            <View style={styles.barLabel}>
+              <AppText variant="bodyMedium">{clinicCity(c.key)}</AppText>
+              <AppText variant="smallMedium">{format(c.value)}</AppText>
+            </View>
+            <ProgressBar value={c.value} max={maxClinic} />
+          </View>
+        ))}
+      </Card>
+
+      <Card title="Gider dağılımı">
+        <DonutChart
+          data={data.byCategory.map(c => ({ label: c.key, value: c.value }))}
+          centerValue={format(summary.expense, { compact: true })}
+          centerLabel="toplam"
+        />
+      </Card>
+
+      <Card title="Hekim bazında gelir">
+        {data.byDoctor.map((d, i) => (
+          <View key={d.key} style={[styles.doctorRow, i < data.byDoctor.length - 1 && styles.divider]}>
+            <AppText variant="caption" color="tertiary" style={styles.rank}>
+              {i + 1}
+            </AppText>
+            <AppText variant="bodyMedium" style={styles.flex} numberOfLines={1}>
+              {personnel[d.key]?.name || 'Silinmiş hekim'}
+            </AppText>
+            <AppText variant="bodyMedium" color="brand">
+              {format(d.value)}
+            </AppText>
+          </View>
+        ))}
+      </Card>
+
+      <Card title="Son işlemler" actionLabel="Tümü" onAction={() => navigation.navigate('Transactions')}>
+        {data.recent.map((t, i) => (
+          <TransactionRow
+            key={t.id}
+            transaction={t}
+            divider={i < data.recent.length - 1}
+            onPress={t.patientId ? () => navigation.navigate('PatientDetail', { id: t.patientId }) : undefined}
+          />
+        ))}
+      </Card>
+    </Screen>
+  );
+}
+
+function Delta({ value }) {
+  const up = value >= 0;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+      <AppText variant="smallMedium" color={up ? 'success' : 'danger'}>
+        {up ? '▲' : '▼'} {formatPercent(value)}
+      </AppText>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#16281e',
-    paddingTop: 54,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    marginBottom: 8,
-  },
-  backButtonWrap: {
-    backgroundColor: '#232a23',
-    borderRadius: 14,
-    padding: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  title: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-    fontFamily: 'System',
-  },
-  scrollContent: {
-    paddingBottom: 32,
-  },
-}); 
+const makeStyles = t => ({
+  flex: { flex: 1 },
+  segment: { marginBottom: 14 },
+  netRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 2, marginBottom: 14 },
+  split: { flexDirection: 'row', gap: 12, borderTopWidth: 1, borderTopColor: t.colors.border, paddingTop: 14 },
+  splitItem: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  splitIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  kpis: { flexDirection: 'row', gap: 12, marginBottom: 14 },
+  actions: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  barRow: { gap: 8, marginBottom: 14 },
+  last: { marginBottom: 0 },
+  barLabel: { flexDirection: 'row', justifyContent: 'space-between' },
+  doctorRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  divider: { borderBottomWidth: 1, borderBottomColor: t.colors.border },
+  rank: { width: 16 },
+});
